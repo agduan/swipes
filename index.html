@@ -2,25 +2,52 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<script>
+  // Apply the saved theme before first paint so there's no flash.
+  (function () {
+    var t = null;
+    try { t = localStorage.getItem('swipes.theme'); } catch (e) {}
+    document.documentElement.dataset.theme = (t === 'dark') ? 'dark' : 'light';
+  })();
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Swipes">
-<meta name="theme-color" content="#10294A">
+<meta name="theme-color" content="#F4F8FC">
 <link rel="apple-touch-icon" href="icon.png">
 <title>Swipes</title>
 <style>
   :root {
+    --bg: #F4F8FC;
+    --ink: #10294A;
+    --muted: #5F7390;
+    --accent: #10294A;
+    --on-accent: #A9D3F2;
+    --accent-press: #1B3A63;
+    --cross: #3E8ED0;
+    --focus: #10294A;
+    --rule: rgba(16, 41, 74, 0.14);
+    --field: rgba(16, 41, 74, 0.05);
+    --field-border: rgba(16, 41, 74, 0.18);
+    --danger: #C62828;
+    --on-tag: #10294A;
+  }
+  [data-theme="dark"] {
     --bg: #10294A;
     --ink: #F2F6FA;
     --muted: #8FA6C2;
     --accent: #A9D3F2;
+    --on-accent: #10294A;
     --accent-press: #8EC2EA;
+    --cross: #A9D3F2;
+    --focus: #A9D3F2;
     --rule: rgba(255, 255, 255, 0.14);
     --field: rgba(255, 255, 255, 0.08);
     --field-border: rgba(255, 255, 255, 0.2);
     --danger: #FF8A80;
+    --on-tag: #10294A;
   }
 
   * { box-sizing: border-box; }
@@ -29,6 +56,7 @@
   body {
     min-height: 100dvh;
     color: var(--ink);
+    background: var(--bg);
     font-family: ui-rounded, system-ui, -apple-system, "Segoe UI", sans-serif;
     -webkit-font-smoothing: antialiased;
     -webkit-text-size-adjust: 100%;
@@ -42,11 +70,21 @@
   }
   main { max-width: 480px; margin: 0 auto; }
   button { font: inherit; color: inherit; }
-  button:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+  button:focus-visible, input:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 
-  /* header */
+  /* header: theme toggle + copy */
   .top { display: flex; justify-content: space-between; align-items: center; height: 36px; }
-  .title { margin: 0; font-size: 17px; font-weight: 700; }
+  .seg {
+    display: inline-flex; padding: 3px; border-radius: 999px;
+    background: var(--field); border: 1px solid var(--field-border);
+  }
+  .seg-btn {
+    display: flex; align-items: center; justify-content: center;
+    width: 38px; height: 28px; border: 0; border-radius: 999px;
+    background: none; color: var(--muted);
+  }
+  .seg-btn.on { background: var(--ink); color: var(--bg); }
+  .seg-btn svg { display: block; }
   .copy {
     background: none; border: 0; padding: 8px 0 8px 12px;
     color: var(--muted); font-size: 15px; font-weight: 600;
@@ -67,15 +105,53 @@
   .tg i { display: block; width: 3px; height: 24px; border-radius: 2px; background: var(--ink); }
   .tg.full::after {
     content: ""; position: absolute; left: -4px; top: 10.5px;
-    width: 32px; height: 3px; border-radius: 2px; background: var(--accent);
+    width: 32px; height: 3px; border-radius: 2px; background: var(--cross);
     transform: rotate(-40deg);
   }
 
+  /* tag pills (read-only) and tag chips (toggles) */
+  .pill {
+    display: inline-block; padding: 2px 7px; border-radius: 999px;
+    background: var(--tag); color: var(--on-tag);
+    font-size: 11px; font-weight: 700; line-height: 1.3; white-space: nowrap;
+  }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  #tags .tag { flex: 1 1 auto; }
+  .tag {
+    height: 30px; padding: 0 11px; border-radius: 999px;
+    font-size: 14px; font-weight: 600;
+    transition: background-color 120ms ease, color 120ms ease;
+  }
+  .tag {
+    border: 1px solid color-mix(in srgb, var(--tag) 70%, var(--bg));
+    background: color-mix(in srgb, var(--tag) 35%, var(--bg));
+    /* unselected text: a darker version of the tag's own hue */
+    color: color-mix(in srgb, var(--tag) 40%, var(--ink));
+    color: oklch(from var(--tag) 0.5 0.11 h);
+  }
+  [data-theme="dark"] .tag { color: var(--tag); }
+  .tag.on { background: var(--tag); border-color: var(--tag); color: var(--on-tag); }
+  /* dining hall picker + note: one grouped box */
+  .group {
+    margin-top: 10px; border-radius: 14px; overflow: hidden;
+    border: 1px solid var(--field-border); background: var(--field);
+  }
+  .group:focus-within { border-color: var(--focus); }
+  .places { display: flex; border-bottom: 1px solid var(--field-border); }
+  .place {
+    flex: 1; height: 36px; padding: 0; border: 0; background: none;
+    border-right: 1px solid var(--field-border);
+    color: var(--muted); font-size: 14px; font-weight: 600;
+    transition: background-color 120ms ease, color 120ms ease;
+  }
+  .place:last-child { border-right: 0; }
+  .place.on { background: color-mix(in srgb, var(--ink) 14%, var(--bg)); color: var(--ink); }
+
   /* the button */
   .log {
-    display: block; width: 100%; height: 168px; margin-top: 32px;
+    display: block; width: 100%; height: 168px; margin-top: 28px;
     border: 0; border-radius: 28px;
-    background: var(--accent); color: var(--bg);
+    background: var(--accent); color: var(--on-accent);
     font-size: 26px; font-weight: 800;
     user-select: none; -webkit-user-select: none;
     transition: transform 120ms ease, background-color 120ms ease;
@@ -84,32 +160,40 @@
 
   /* note field */
   .note {
-    display: block; width: 100%; height: 52px; margin-top: 12px; padding: 0 16px;
-    border-radius: 14px; border: 1px solid var(--field-border);
-    background: var(--field); color: var(--ink); font: inherit; font-size: 17px;
+    display: block; width: 100%; height: 40px; padding: 0 14px;
+    border: 0; border-radius: 0; background: none;
+    color: var(--ink); font: inherit; font-size: 16px;
   }
-  .note::placeholder { color: var(--muted); }
-  .note:focus { outline: none; border-color: var(--accent); }
+  .note::placeholder { color: var(--muted); font-size: 14px; }
+  .note:focus { outline: none; }
 
   .warn { margin: 14px 0 0; text-align: center; font-size: 14px; color: var(--danger); }
   .warn[hidden] { display: none; }
 
   /* history */
-  .list { list-style: none; margin: 28px 0 0; padding: 0; border-top: 1px solid var(--rule); }
+  .list { list-style: none; margin: 18px 0 0; padding: 0; border-top: 1px solid var(--rule); }
   .row { display: flex; align-items: flex-start; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--rule); }
   .body { flex: 1; min-width: 0; }
   .when { margin: 0; font-size: 16px; font-weight: 600; }
+  .memo-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 5px; margin-top: 4px; }
   .memo {
-    display: block; width: 100%; margin: 3px 0 0; padding: 0; border: 0; background: none;
+    max-width: 100%; padding: 0; border: 0; background: none;
     text-align: left; font-size: 15px; line-height: 1.35; white-space: normal; overflow-wrap: anywhere;
   }
   .memo.add { color: var(--muted); opacity: 0.6; }
+  .edit { margin-top: 6px; }
   .memo-edit {
-    display: block; width: 100%; height: 40px; margin-top: 6px; padding: 0 10px;
-    border-radius: 10px; border: 1px solid var(--accent);
+    display: block; width: 100%; height: 40px; padding: 0 10px;
+    border-radius: 10px; border: 1px solid var(--focus);
     background: var(--field); color: var(--ink); font: inherit; font-size: 16px;
   }
   .memo-edit:focus { outline: none; }
+  .edit-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 8px; }
+  .edit-tags .tag { height: 28px; padding: 0 10px; font-size: 13px; }
+  .done {
+    margin-left: auto; height: 30px; padding: 0 12px; border: 0; border-radius: 999px;
+    background: var(--ink); color: var(--bg); font-size: 13px; font-weight: 700;
+  }
   .del {
     flex: none; min-width: 44px; padding: 0 0 0 8px; border: 0; background: none;
     text-align: right; color: var(--muted); font-size: 24px; line-height: 22px;
@@ -120,14 +204,26 @@
 
   @media (prefers-reduced-motion: reduce) {
     .num.pop { animation: none; }
-    .log { transition: none; }
+    .log, .tag { transition: none; }
   }
 </style>
 </head>
 <body>
 <main>
   <header class="top">
-    <h1 class="title">Swipes</h1>
+    <div class="seg" role="group" aria-label="Appearance">
+      <button type="button" class="seg-btn" data-set="light" aria-label="Light mode">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>
+        </svg>
+      </button>
+      <button type="button" class="seg-btn" data-set="dark" aria-label="Dark mode">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+          <path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/>
+        </svg>
+      </button>
+    </div>
     <button type="button" class="copy" id="copy">Copy list</button>
   </header>
 
@@ -137,8 +233,12 @@
   </section>
 
   <button type="button" class="log" id="log">Log a swipe</button>
-  <input class="note" id="note" type="text" placeholder="Note (optional)" maxlength="200"
-         autocomplete="off" autocapitalize="sentences" enterkeyhint="done">
+  <div class="tags" id="tags" role="group" aria-label="Tag people"></div>
+  <div class="group">
+    <div class="places" id="places" role="radiogroup" aria-label="Dining hall"></div>
+    <input class="note" id="note" type="text" placeholder="Description" maxlength="200"
+           autocomplete="off" autocapitalize="sentences" enterkeyhint="done">
+  </div>
   <p class="warn" id="warn" hidden>Can't save on this device. Entries will disappear when the app closes.</p>
 
   <ul class="list" id="list"></ul>
@@ -146,19 +246,54 @@
 </main>
 
 <script>
+  // Edit the people and their colors here. Keep colors light enough for dark text.
+  const TAGS = [
+    { id: 'keona', name: 'Keona', color: '#BDE8C6' },
+    { id: 'annis', name: 'Annis', color: '#FFB3B3' },
+    { id: 'kex',   name: 'Kex',   color: '#FFCFA3' },
+    { id: 'laura', name: 'Laura', color: '#FFC8DC' },
+  ];
+  // Dining halls / common descriptions. One at a time; the text is prepended to the note.
+  const PLACES = ['fac', 'chmike', 'jj', 'johnnys'];
+
   const KEY = 'swipes.entries';
+  const THEME_KEY = 'swipes.theme';
+  const THEME_BG = { light: '#F4F8FC', dark: '#10294A' };
+
   const numEl = document.getElementById('num');
   const tallyEl = document.getElementById('tally');
   const logBtn = document.getElementById('log');
   const noteEl = document.getElementById('note');
+  const tagsEl = document.getElementById('tags');
+  const placesEl = document.getElementById('places');
   const warnEl = document.getElementById('warn');
   const listEl = document.getElementById('list');
   const emptyEl = document.getElementById('empty');
   const copyBtn = document.getElementById('copy');
+  const segBtns = document.querySelectorAll('.seg-btn');
 
-  let entries = [];       // { id, t (ms since epoch), note }
-  let confirming = null;  // id of the entry whose delete button is armed
-  let editing = null;     // id of the entry whose note is being edited
+  let entries = [];             // { id, t (ms since epoch), note, tags: [tag ids] }
+  let selected = new Set();     // tags picked for the next log
+  let place = null;             // dining hall picked for the next log (prepended to the note)
+  let confirming = null;        // id of the entry whose delete button is armed
+  let editing = null;           // id of the entry being edited
+
+  const tagById = id => TAGS.find(t => t.id === id);
+  const tagIds = e => e.tags || [];
+  const tagsOf = e => tagIds(e).map(tagById).filter(Boolean);
+
+  // ---------- theme ----------
+  function setTheme(t) {
+    document.documentElement.dataset.theme = t;
+    document.querySelector('meta[name="theme-color"]').setAttribute('content', THEME_BG[t]);
+    segBtns.forEach(b => {
+      const on = b.dataset.set === t;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', on);
+    });
+    try { localStorage.setItem(THEME_KEY, t); } catch (_) {}
+  }
+  segBtns.forEach(b => b.addEventListener('click', () => setTheme(b.dataset.set)));
 
   // ---------- storage ----------
   function load() {
@@ -193,6 +328,24 @@
     return (full || d.getFullYear() !== thisYear ? fmtLong : fmtShort).format(d);
   }
 
+  // ---------- small builders ----------
+  function chip(t, on) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'tag' + (on ? ' on' : '');
+    b.style.setProperty('--tag', t.color);
+    b.textContent = t.name;
+    b.setAttribute('aria-pressed', on);
+    return b;
+  }
+  function pill(t) {
+    const s = document.createElement('span');
+    s.className = 'pill';
+    s.style.setProperty('--tag', t.color);
+    s.textContent = t.name;
+    return s;
+  }
+
   // ---------- rendering ----------
   function render() {
     numEl.textContent = entries.length;
@@ -213,6 +366,36 @@
     el.className = 'tg' + (full ? ' full' : '');
     for (let i = 0; i < bars; i++) el.appendChild(document.createElement('i'));
     return el;
+  }
+
+  function renderPicker() {
+    tagsEl.innerHTML = '';
+    for (const t of TAGS) {
+      const b = chip(t, selected.has(t.id));
+      b.addEventListener('click', () => {
+        if (selected.has(t.id)) selected.delete(t.id); else selected.add(t.id);
+        b.classList.toggle('on', selected.has(t.id));
+        b.setAttribute('aria-pressed', selected.has(t.id));
+      });
+      tagsEl.appendChild(b);
+    }
+  }
+
+  function renderPlaces() {
+    placesEl.innerHTML = '';
+    for (const name of PLACES) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'place' + (place === name ? ' on' : '');
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', place === name);
+      b.textContent = name;
+      b.addEventListener('click', () => {
+        place = (place === name) ? null : name;
+        renderPlaces();
+      });
+      placesEl.appendChild(b);
+    }
   }
 
   function renderList() {
@@ -236,38 +419,65 @@
     body.appendChild(w);
 
     if (editing === e.id) {
+      const box = document.createElement('div');
+      box.className = 'edit';
+
       const inp = document.createElement('input');
       inp.className = 'memo-edit';
       inp.type = 'text';
       inp.maxLength = 200;
       inp.placeholder = 'Note';
+      inp.enterKeyHint = 'done';
       inp.value = e.note || '';
       inp.addEventListener('keydown', ev => {
-        if (ev.key === 'Enter') inp.blur();
-        if (ev.key === 'Escape') { editing = null; renderList(); }
+        if (ev.key === 'Enter') { ev.preventDefault(); closeEdit(true); }
+        if (ev.key === 'Escape') closeEdit(false);
       });
-      inp.addEventListener('blur', () => {
-        if (editing !== e.id) return;
-        e.note = inp.value.trim();
-        editing = null;
-        save();
-        renderList();
-      });
-      body.appendChild(inp);
+
+      const tr = document.createElement('div');
+      tr.className = 'edit-tags';
+      for (const t of TAGS) {
+        const b = chip(t, tagIds(e).includes(t.id));
+        b.addEventListener('click', () => {
+          const has = tagIds(e).includes(t.id);
+          e.tags = has ? tagIds(e).filter(x => x !== t.id) : tagIds(e).concat(t.id);
+          b.classList.toggle('on', !has);
+          b.setAttribute('aria-pressed', !has);
+          save();
+        });
+        tr.appendChild(b);
+      }
+      const done = document.createElement('button');
+      done.type = 'button';
+      done.className = 'done';
+      done.textContent = 'Done';
+      done.addEventListener('click', () => closeEdit(true));
+      tr.appendChild(done);
+
+      box.append(inp, tr);
+      body.appendChild(box);
     } else {
-      const m = document.createElement('button');
-      m.type = 'button';
-      m.className = 'memo' + (e.note ? '' : ' add');
-      m.textContent = e.note || 'Add note';
-      m.addEventListener('click', ev => {
-        ev.stopPropagation();
-        editing = e.id;
-        confirming = null;
-        renderList();
-        const inp = listEl.querySelector('.memo-edit');
-        if (inp) inp.focus();
-      });
-      body.appendChild(m);
+      const line = document.createElement('div');
+      line.className = 'memo-line';
+      const open = ev => { ev.stopPropagation(); openEdit(e.id); };
+      if (e.note) {
+        const m = document.createElement('button');
+        m.type = 'button';
+        m.className = 'memo';
+        m.textContent = e.note;
+        m.addEventListener('click', open);
+        line.appendChild(m);
+      }
+      for (const t of tagsOf(e)) line.appendChild(pill(t));
+      if (!e.note) {
+        const m = document.createElement('button');
+        m.type = 'button';
+        m.className = 'memo add';
+        m.textContent = 'Add note';
+        m.addEventListener('click', open);
+        line.appendChild(m);
+      }
+      body.appendChild(line);
     }
 
     const del = document.createElement('button');
@@ -281,6 +491,7 @@
       if (confirming === e.id) {
         entries = entries.filter(x => x.id !== e.id);
         confirming = null;
+        if (editing === e.id) editing = null;
         save();
         render();
       } else {
@@ -293,26 +504,61 @@
     return li;
   }
 
-  // tapping anywhere else disarms a pending delete
-  document.addEventListener('click', () => {
+  // ---------- editing an entry ----------
+  function editInput() { return listEl.querySelector('.memo-edit'); }
+  function stashNote() {
+    const e = entries.find(x => x.id === editing);
+    const inp = editInput();
+    if (e && inp) e.note = inp.value.trim();
+  }
+  function openEdit(id) {
+    if (editing === id) return;
+    if (editing) { stashNote(); save(); }
+    editing = id;
+    confirming = null;
+    renderList();
+    const inp = editInput();
+    if (inp) inp.focus();
+  }
+  function closeEdit(keepNote) {
+    if (!editing) return;
+    if (keepNote) stashNote();
+    editing = null;
+    save();
+    renderList();
+  }
+
+  // tapping anywhere else disarms a pending delete and closes an open edit
+  document.addEventListener('click', ev => {
+    const insideEdit = !!ev.target.closest('.edit');
     if (confirming) { confirming = null; renderList(); }
+    if (editing && !insideEdit) closeEdit(true);
   });
 
   // ---------- actions ----------
   let flashTimer = null;
-  function flash(btn, text, back) {
+  function flash(btn, text, back, ms) {
     btn.textContent = text;
     clearTimeout(flashTimer);
-    flashTimer = setTimeout(() => { btn.textContent = back; }, 900);
+    flashTimer = setTimeout(() => { btn.textContent = back; }, ms || 900);
   }
 
   logBtn.addEventListener('click', () => {
-    entries.push({ id: uid(), t: Date.now(), note: noteEl.value.trim() });
+    entries.push({
+      id: uid(),
+      t: Date.now(),
+      note: [place, noteEl.value.trim()].filter(Boolean).join(' '),
+      tags: TAGS.filter(t => selected.has(t.id)).map(t => t.id),
+    });
     noteEl.value = '';
     noteEl.blur();
+    selected.clear();
+    place = null;
+    renderPicker();
+    renderPlaces();
     save();
     render();
-    flash(logBtn, 'Logged', 'Log a swipe');
+    flash(logBtn, 'Logged', 'Log a swipe', 1800);
     numEl.classList.remove('pop');
     void numEl.offsetWidth; // restart the animation
     numEl.classList.add('pop');
@@ -326,7 +572,12 @@
     const lines = [entries.length + (entries.length === 1 ? ' swipe' : ' swipes')];
     for (let i = entries.length - 1; i >= 0; i--) {
       const e = entries[i];
-      lines.push(when(e.t, true) + (e.note ? ' \u2014 ' + e.note : ''));
+      const names = tagsOf(e).map(t => t.name);
+      lines.push(
+        when(e.t, true)
+        + (e.note ? ' \u2014 ' + e.note : '')
+        + (names.length ? ' (' + names.join(', ') + ')' : '')
+      );
     }
     const text = lines.join('\n');
     let ok = false;
@@ -350,7 +601,10 @@
     return ok;
   }
 
+  setTheme(document.documentElement.dataset.theme || 'light');
   load();
+  renderPicker();
+  renderPlaces();
   render();
 </script>
 </body>
