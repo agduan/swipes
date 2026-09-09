@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Swipes">
+<meta name="theme-color" content="#10294A">
+<link rel="apple-touch-icon" href="icon.png">
+<title>Swipes</title>
+<style>
+  :root {
+    --bg: #10294A;
+    --ink: #F2F6FA;
+    --muted: #8FA6C2;
+    --accent: #A9D3F2;
+    --accent-press: #8EC2EA;
+    --rule: rgba(255, 255, 255, 0.14);
+    --field: rgba(255, 255, 255, 0.08);
+    --field-border: rgba(255, 255, 255, 0.2);
+    --danger: #FF8A80;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  html { background: var(--bg); }
+  body {
+    min-height: 100dvh;
+    color: var(--ink);
+    font-family: ui-rounded, system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    padding:
+      calc(env(safe-area-inset-top) + 12px)
+      calc(env(safe-area-inset-right) + 20px)
+      calc(env(safe-area-inset-bottom) + 28px)
+      calc(env(safe-area-inset-left) + 20px);
+  }
+  main { max-width: 480px; margin: 0 auto; }
+  button { font: inherit; color: inherit; }
+  button:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+
+  /* header */
+  .top { display: flex; justify-content: space-between; align-items: center; height: 36px; }
+  .title { margin: 0; font-size: 17px; font-weight: 700; }
+  .copy {
+    background: none; border: 0; padding: 8px 0 8px 12px;
+    color: var(--muted); font-size: 15px; font-weight: 600;
+  }
+
+  /* running total */
+  .count { text-align: center; margin-top: 28px; }
+  .num {
+    margin: 0; font-size: 96px; font-weight: 800; line-height: 1;
+    letter-spacing: -0.03em; font-variant-numeric: tabular-nums;
+  }
+  .num.pop { animation: pop 260ms ease-out; }
+  @keyframes pop { 40% { transform: scale(1.08); } }
+
+  .tally { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px 14px; margin-top: 18px; }
+  .tally:empty { margin-top: 0; }
+  .tg { position: relative; display: flex; gap: 4px; }
+  .tg i { display: block; width: 3px; height: 24px; border-radius: 2px; background: var(--ink); }
+  .tg.full::after {
+    content: ""; position: absolute; left: -4px; top: 10.5px;
+    width: 32px; height: 3px; border-radius: 2px; background: var(--accent);
+    transform: rotate(-40deg);
+  }
+
+  /* the button */
+  .log {
+    display: block; width: 100%; height: 168px; margin-top: 32px;
+    border: 0; border-radius: 28px;
+    background: var(--accent); color: var(--bg);
+    font-size: 26px; font-weight: 800;
+    user-select: none; -webkit-user-select: none;
+    transition: transform 120ms ease, background-color 120ms ease;
+  }
+  .log:active { transform: scale(0.98); background: var(--accent-press); }
+
+  /* note field */
+  .note {
+    display: block; width: 100%; height: 52px; margin-top: 12px; padding: 0 16px;
+    border-radius: 14px; border: 1px solid var(--field-border);
+    background: var(--field); color: var(--ink); font: inherit; font-size: 17px;
+  }
+  .note::placeholder { color: var(--muted); }
+  .note:focus { outline: none; border-color: var(--accent); }
+
+  .warn { margin: 14px 0 0; text-align: center; font-size: 14px; color: var(--danger); }
+  .warn[hidden] { display: none; }
+
+  /* history */
+  .list { list-style: none; margin: 28px 0 0; padding: 0; border-top: 1px solid var(--rule); }
+  .row { display: flex; align-items: flex-start; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--rule); }
+  .body { flex: 1; min-width: 0; }
+  .when { margin: 0; font-size: 16px; font-weight: 600; }
+  .memo {
+    display: block; width: 100%; margin: 3px 0 0; padding: 0; border: 0; background: none;
+    text-align: left; font-size: 15px; line-height: 1.35; white-space: normal; overflow-wrap: anywhere;
+  }
+  .memo.add { color: var(--muted); opacity: 0.6; }
+  .memo-edit {
+    display: block; width: 100%; height: 40px; margin-top: 6px; padding: 0 10px;
+    border-radius: 10px; border: 1px solid var(--accent);
+    background: var(--field); color: var(--ink); font: inherit; font-size: 16px;
+  }
+  .memo-edit:focus { outline: none; }
+  .del {
+    flex: none; min-width: 44px; padding: 0 0 0 8px; border: 0; background: none;
+    text-align: right; color: var(--muted); font-size: 24px; line-height: 22px;
+  }
+  .del.confirm { color: var(--danger); font-size: 15px; font-weight: 700; }
+  .empty { margin: 0; padding: 28px 0; text-align: center; color: var(--muted); }
+  .empty[hidden] { display: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .num.pop { animation: none; }
+    .log { transition: none; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header class="top">
+    <h1 class="title">Swipes</h1>
+    <button type="button" class="copy" id="copy">Copy list</button>
+  </header>
+
+  <section class="count">
+    <p class="num" id="num" aria-live="polite">0</p>
+    <div class="tally" id="tally" aria-hidden="true"></div>
+  </section>
+
+  <button type="button" class="log" id="log">Log a swipe</button>
+  <input class="note" id="note" type="text" placeholder="Note (optional)" maxlength="200"
+         autocomplete="off" autocapitalize="sentences" enterkeyhint="done">
+  <p class="warn" id="warn" hidden>Can't save on this device. Entries will disappear when the app closes.</p>
+
+  <ul class="list" id="list"></ul>
+  <p class="empty" id="empty">No swipes logged yet.</p>
+</main>
+
+<script>
+  const KEY = 'swipes.entries';
+  const numEl = document.getElementById('num');
+  const tallyEl = document.getElementById('tally');
+  const logBtn = document.getElementById('log');
+  const noteEl = document.getElementById('note');
+  const warnEl = document.getElementById('warn');
+  const listEl = document.getElementById('list');
+  const emptyEl = document.getElementById('empty');
+  const copyBtn = document.getElementById('copy');
+
+  let entries = [];       // { id, t (ms since epoch), note }
+  let confirming = null;  // id of the entry whose delete button is armed
+  let editing = null;     // id of the entry whose note is being edited
+
+  // ---------- storage ----------
+  function load() {
+    let raw = null;
+    try { raw = localStorage.getItem(KEY); }
+    catch (e) { warnEl.hidden = false; return; }
+    if (!raw) return;
+    try {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) entries = arr;
+    } catch (e) {
+      try { localStorage.setItem(KEY + '.bak', raw); } catch (_) {}
+    }
+  }
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(entries)); }
+    catch (e) { warnEl.hidden = false; }
+  }
+  function uid() {
+    return (crypto.randomUUID) ? crypto.randomUUID()
+      : Date.now().toString(36) + Math.random().toString(36).slice(2);
+  }
+
+  // ---------- formatting ----------
+  const thisYear = new Date().getFullYear();
+  const fmtShort = new Intl.DateTimeFormat('en-US',
+    { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const fmtLong = new Intl.DateTimeFormat('en-US',
+    { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+  function when(t, full) {
+    const d = new Date(t);
+    return (full || d.getFullYear() !== thisYear ? fmtLong : fmtShort).format(d);
+  }
+
+  // ---------- rendering ----------
+  function render() {
+    numEl.textContent = entries.length;
+    renderTally();
+    renderList();
+  }
+
+  function renderTally() {
+    tallyEl.innerHTML = '';
+    const n = entries.length;
+    const frag = document.createDocumentFragment();
+    for (let g = 0; g < Math.floor(n / 5); g++) frag.appendChild(tallyGroup(4, true));
+    if (n % 5) frag.appendChild(tallyGroup(n % 5, false));
+    tallyEl.appendChild(frag);
+  }
+  function tallyGroup(bars, full) {
+    const el = document.createElement('span');
+    el.className = 'tg' + (full ? ' full' : '');
+    for (let i = 0; i < bars; i++) el.appendChild(document.createElement('i'));
+    return el;
+  }
+
+  function renderList() {
+    listEl.innerHTML = '';
+    emptyEl.hidden = entries.length > 0;
+    const frag = document.createDocumentFragment();
+    for (let i = entries.length - 1; i >= 0; i--) frag.appendChild(row(entries[i]));
+    listEl.appendChild(frag);
+  }
+
+  function row(e) {
+    const li = document.createElement('li');
+    li.className = 'row';
+
+    const body = document.createElement('div');
+    body.className = 'body';
+
+    const w = document.createElement('p');
+    w.className = 'when';
+    w.textContent = when(e.t);
+    body.appendChild(w);
+
+    if (editing === e.id) {
+      const inp = document.createElement('input');
+      inp.className = 'memo-edit';
+      inp.type = 'text';
+      inp.maxLength = 200;
+      inp.placeholder = 'Note';
+      inp.value = e.note || '';
+      inp.addEventListener('keydown', ev => {
+        if (ev.key === 'Enter') inp.blur();
+        if (ev.key === 'Escape') { editing = null; renderList(); }
+      });
+      inp.addEventListener('blur', () => {
+        if (editing !== e.id) return;
+        e.note = inp.value.trim();
+        editing = null;
+        save();
+        renderList();
+      });
+      body.appendChild(inp);
+    } else {
+      const m = document.createElement('button');
+      m.type = 'button';
+      m.className = 'memo' + (e.note ? '' : ' add');
+      m.textContent = e.note || 'Add note';
+      m.addEventListener('click', ev => {
+        ev.stopPropagation();
+        editing = e.id;
+        confirming = null;
+        renderList();
+        const inp = listEl.querySelector('.memo-edit');
+        if (inp) inp.focus();
+      });
+      body.appendChild(m);
+    }
+
+    const del = document.createElement('button');
+    del.type = 'button';
+    const armed = confirming === e.id;
+    del.className = 'del' + (armed ? ' confirm' : '');
+    del.textContent = armed ? 'Delete' : '\u00d7';
+    del.setAttribute('aria-label', armed ? 'Confirm delete' : 'Delete entry');
+    del.addEventListener('click', ev => {
+      ev.stopPropagation();
+      if (confirming === e.id) {
+        entries = entries.filter(x => x.id !== e.id);
+        confirming = null;
+        save();
+        render();
+      } else {
+        confirming = e.id;
+        renderList();
+      }
+    });
+
+    li.append(body, del);
+    return li;
+  }
+
+  // tapping anywhere else disarms a pending delete
+  document.addEventListener('click', () => {
+    if (confirming) { confirming = null; renderList(); }
+  });
+
+  // ---------- actions ----------
+  let flashTimer = null;
+  function flash(btn, text, back) {
+    btn.textContent = text;
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => { btn.textContent = back; }, 900);
+  }
+
+  logBtn.addEventListener('click', () => {
+    entries.push({ id: uid(), t: Date.now(), note: noteEl.value.trim() });
+    noteEl.value = '';
+    noteEl.blur();
+    save();
+    render();
+    flash(logBtn, 'Logged', 'Log a swipe');
+    numEl.classList.remove('pop');
+    void numEl.offsetWidth; // restart the animation
+    numEl.classList.add('pop');
+  });
+
+  noteEl.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter') { ev.preventDefault(); logBtn.click(); }
+  });
+
+  copyBtn.addEventListener('click', async () => {
+    const lines = [entries.length + (entries.length === 1 ? ' swipe' : ' swipes')];
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const e = entries[i];
+      lines.push(when(e.t, true) + (e.note ? ' \u2014 ' + e.note : ''));
+    }
+    const text = lines.join('\n');
+    let ok = false;
+    try { await navigator.clipboard.writeText(text); ok = true; }
+    catch (_) { ok = legacyCopy(text); }
+    flash(copyBtn, ok ? 'Copied' : 'Copy failed', 'Copy list');
+  });
+
+  function legacyCopy(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, text.length);
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (_) {}
+    document.body.removeChild(ta);
+    return ok;
+  }
+
+  load();
+  render();
+</script>
+</body>
+</html>
