@@ -259,7 +259,13 @@
   const PLACES = ['fac', 'chmike', 'jj', 'jognnys', 'jeY'];
 
   const KEY = 'swipes.entries';
+  const DEL_KEY = 'swipes.deleted';
+  const CODE_KEY = 'swipes.code';
   const THEME_KEY = 'swipes.theme';
+
+  // Cross-device sync via Supabase. Leave both blank to run purely on localStorage.
+  const SUPA_URL = 'https://wongucbnpwrporvgyvjm.supabase.co';
+  const SUPA_KEY = 'sb_publishable_OPnXfrXf4wrXycMcrokMTw_Sr-av9et';
   const THEME_BG = { light: '#F4F8FC', dark: '#10294A' };
 
   const numEl = document.getElementById('num');
@@ -274,7 +280,8 @@
   const copyBtn = document.getElementById('copy');
   const segBtns = document.querySelectorAll('.seg-btn');
 
-  let entries = [];             // { id, t (ms since epoch), note, tags: [tag ids] }
+  let entries = [];             // { id, t (ms since epoch), note, tags: [tag ids], updated_at }
+  let deletedIds = [];          // ids of deleted entries, kept so another device can't resurrect them
   let selected = new Set();     // tags picked for the next log
   let place = null;             // dining hall picked for the next log (prepended to the note)
   let confirming = null;        // id of the entry whose delete button is armed
@@ -302,6 +309,10 @@
     let raw = null;
     try { raw = localStorage.getItem(KEY); }
     catch (e) { warnEl.hidden = false; return; }
+    try {
+      const del = JSON.parse(localStorage.getItem(DEL_KEY) || '[]');
+      if (Array.isArray(del)) deletedIds = del;
+    } catch (_) {}
     if (!raw) return;
     try {
       const arr = JSON.parse(raw);
@@ -310,13 +321,103 @@
       try { localStorage.setItem(KEY + '.bak', raw); } catch (_) {}
     }
   }
-  function save() {
-    try { localStorage.setItem(KEY, JSON.stringify(entries)); }
+  function store() {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(entries));
+      localStorage.setItem(DEL_KEY, JSON.stringify(deletedIds));
+    }
     catch (e) { warnEl.hidden = false; }
+  }
+  function save() {
+    store();
+    pushSoon();
   }
   function uid() {
     return (crypto.randomUUID) ? crypto.randomUUID()
       : Date.now().toString(36) + Math.random().toString(36).slice(2);
+  }
+
+  // ---------- sync (optional; requires SUPA_URL/SUPA_KEY and the shared sync code) ----------
+  const stamp = e => e.updated_at || e.t;
+
+  function syncCode(ask) {
+    let c = null;
+    try { c = localStorage.getItem(CODE_KEY); } catch (_) { return null; }
+    if (!c && ask) {
+      c = (prompt('Sync code (use the same word on every device):') || '').trim();
+      if (c) { try { localStorage.setItem(CODE_KEY, c); } catch (_) {} }
+    }
+    return c || null;
+  }
+  function syncHeaders(ask) {
+    const code = syncCode(ask);
+    if (!code) return null;
+    return {
+      apikey: SUPA_KEY,
+      Authorization: 'Bearer ' + SUPA_KEY,
+      'Content-Type': 'application/json',
+      'x-sync-code': code,
+    };
+  }
+
+  async function pull(headers) {
+    const res = await fetch(SUPA_URL + '/rest/v1/entries?select=*', { headers });
+    if (!res.ok) throw new Error(res.status);
+    const rows = await res.json();
+    let changed = false;
+    for (const r of rows) {
+      if (r.deleted || deletedIds.includes(r.id)) {
+        if (!deletedIds.includes(r.id)) deletedIds.push(r.id);
+        const before = entries.length;
+        entries = entries.filter(x => x.id !== r.id);
+        changed = changed || entries.length !== before;
+        continue;
+      }
+      const local = entries.find(x => x.id === r.id);
+      const remote = { id: r.id, t: r.t, note: r.note, tags: r.tags, updated_at: r.updated_at };
+      if (!local) { entries.push(remote); changed = true; }
+      else if (stamp(remote) > stamp(local)) { Object.assign(local, remote); changed = true; }
+    }
+    if (changed) {
+      entries.sort((a, b) => a.t - b.t);
+      store();
+    }
+    return changed;
+  }
+
+  async function push(headers) {
+    const code = headers['x-sync-code'];
+    const rows = entries.map(e => ({
+      id: e.id, t: e.t, note: e.note || '', tags: e.tags || [],
+      deleted: false, updated_at: stamp(e), sync_code: code,
+    })).concat(deletedIds.map(id => ({ id, deleted: true, sync_code: code })));
+    if (!rows.length) return;
+    await fetch(SUPA_URL + '/rest/v1/entries', {
+      method: 'POST',
+      headers: { ...headers, Prefer: 'resolution=merge-duplicates' },
+      body: JSON.stringify(rows),
+    });
+  }
+
+  let pushTimer = null;
+  function pushSoon() {
+    if (!SUPA_URL) return;
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(() => {
+      const h = syncHeaders(false);
+      if (h) push(h).catch(() => {});
+    }, 800);
+  }
+
+  async function sync() {
+    if (!SUPA_URL) return;
+    const h = syncHeaders(true);
+    if (!h) return;
+    try {
+      const changed = await pull(h);
+      await push(h);
+      if (changed && !editing) render();
+    } catch (_) { /* offline or unreachable: localStorage keeps working as before */ }
   }
 
   // ---------- formatting ----------
@@ -443,6 +544,7 @@
         b.addEventListener('click', () => {
           const has = tagIds(e).includes(t.id);
           e.tags = has ? tagIds(e).filter(x => x !== t.id) : tagIds(e).concat(t.id);
+          e.updated_at = Date.now();
           b.classList.toggle('on', !has);
           b.setAttribute('aria-pressed', !has);
           save();
@@ -491,6 +593,7 @@
     del.addEventListener('click', ev => {
       ev.stopPropagation();
       if (confirming === e.id) {
+        deletedIds.push(e.id);
         entries = entries.filter(x => x.id !== e.id);
         confirming = null;
         if (editing === e.id) editing = null;
@@ -511,7 +614,7 @@
   function stashNote() {
     const e = entries.find(x => x.id === editing);
     const inp = editInput();
-    if (e && inp) e.note = inp.value.trim();
+    if (e && inp) { e.note = inp.value.trim(); e.updated_at = Date.now(); }
   }
   function openEdit(id) {
     if (editing === id) return;
@@ -551,6 +654,7 @@
       t: Date.now(),
       note: [place, noteEl.value.trim()].filter(Boolean).join(' '),
       tags: TAGS.filter(t => selected.has(t.id)).map(t => t.id),
+      updated_at: Date.now(),
     });
     noteEl.value = '';
     noteEl.blur();
@@ -608,6 +712,10 @@
   renderPicker();
   renderPlaces();
   render();
+  sync();
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') sync();
+  });
 </script>
 </body>
 </html>
