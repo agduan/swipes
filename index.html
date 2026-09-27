@@ -91,6 +91,8 @@
     background: none; border: 0; padding: 8px 0 8px 12px;
     color: var(--muted); font-size: 15px; font-weight: 600;
   }
+  .top-right { display: flex; align-items: center; }
+  .copy.unsynced { color: var(--danger); }
 
   /* running total */
   .count { text-align: center; margin-top: 28px; }
@@ -226,7 +228,10 @@
         </svg>
       </button>
     </div>
-    <button type="button" class="copy" id="copy">Copy list</button>
+    <div class="top-right">
+      <button type="button" class="copy unsynced" id="unsynced" hidden>Not synced</button>
+      <button type="button" class="copy" id="copy">Copy list</button>
+    </div>
   </header>
 
   <section class="count">
@@ -278,6 +283,7 @@
   const listEl = document.getElementById('list');
   const emptyEl = document.getElementById('empty');
   const copyBtn = document.getElementById('copy');
+  const unsyncedBtn = document.getElementById('unsynced');
   const segBtns = document.querySelectorAll('.seg-btn');
 
   let entries = [];             // { id, t (ms since epoch), note, tags: [tag ids], updated_at }
@@ -340,15 +346,18 @@
   // ---------- sync (optional; requires SUPA_URL/SUPA_KEY and the shared sync code) ----------
   const stamp = e => e.updated_at || e.t;
 
+  // Case-insensitive so a phone keyboard's auto-capitalization can't split devices apart.
+  const normCode = c => (c || '').trim().toLowerCase();
   function syncCode(ask) {
     let c = null;
-    try { c = localStorage.getItem(CODE_KEY); } catch (_) { return null; }
+    try { c = normCode(localStorage.getItem(CODE_KEY)); } catch (_) { return null; }
     if (!c && ask) {
-      c = (prompt('Sync code (use the same word on every device):') || '').trim();
+      c = normCode(prompt('Sync code (use the same word on every device):'));
       if (c) { try { localStorage.setItem(CODE_KEY, c); } catch (_) {} }
     }
     return c || null;
   }
+  function setSynced(ok) { unsyncedBtn.hidden = ok; }
   function syncHeaders(ask) {
     const code = syncCode(ask);
     if (!code) return null;
@@ -392,11 +401,12 @@
       deleted: false, updated_at: stamp(e), sync_code: code,
     })).concat(deletedIds.map(id => ({ id, deleted: true, sync_code: code })));
     if (!rows.length) return;
-    await fetch(SUPA_URL + '/rest/v1/entries', {
+    const res = await fetch(SUPA_URL + '/rest/v1/entries', {
       method: 'POST',
       headers: { ...headers, Prefer: 'resolution=merge-duplicates' },
       body: JSON.stringify(rows),
     });
+    if (!res.ok) throw new Error(res.status);
   }
 
   let pushTimer = null;
@@ -405,20 +415,29 @@
     clearTimeout(pushTimer);
     pushTimer = setTimeout(() => {
       const h = syncHeaders(false);
-      if (h) push(h).catch(() => {});
+      if (h) push(h).then(() => setSynced(true), () => setSynced(false));
     }, 800);
   }
 
   async function sync() {
     if (!SUPA_URL) return;
     const h = syncHeaders(true);
-    if (!h) return;
+    if (!h) { setSynced(false); return; }
     try {
       const changed = await pull(h);
       await push(h);
+      setSynced(true);
       if (changed && !editing) render();
-    } catch (_) { /* offline or unreachable: localStorage keeps working as before */ }
+    } catch (_) {
+      setSynced(false); // offline or unreachable: localStorage keeps working as before
+    }
   }
+  // Tapping "Not synced" retries, and lets you re-enter the sync code.
+  unsyncedBtn.addEventListener('click', ev => {
+    ev.stopPropagation();
+    try { localStorage.removeItem(CODE_KEY); } catch (_) {}
+    sync();
+  });
 
   // ---------- formatting ----------
   const thisYear = new Date().getFullYear();
