@@ -399,7 +399,10 @@
     const rows = entries.map(e => ({
       id: e.id, t: e.t, note: e.note || '', tags: e.tags || [],
       deleted: false, updated_at: stamp(e), sync_code: code,
-    })).concat(deletedIds.map(id => ({ id, deleted: true, sync_code: code })));
+    })).concat(deletedIds.map(id => ({
+      // Every row in a bulk upsert must have the same keys, or Supabase rejects the batch.
+      id, t: 0, note: '', tags: [], deleted: true, updated_at: 0, sync_code: code,
+    })));
     if (!rows.length) return;
     const res = await fetch(SUPA_URL + '/rest/v1/entries', {
       method: 'POST',
