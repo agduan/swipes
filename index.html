@@ -268,9 +268,9 @@
   const CODE_KEY = 'swipes.code';
   const THEME_KEY = 'swipes.theme';
 
-  // Cross-device sync via Supabase. Leave both blank to run purely on localStorage.
-  const SUPA_URL = 'https://wongucbnpwrporvgyvjm.supabase.co';
-  const SUPA_KEY = 'sb_publishable_OPnXfrXf4wrXycMcrokMTw_Sr-av9et';
+  // Cross-device sync via Firebase Firestore. Leave FB_PROJECT blank to run purely on localStorage.
+  const FB_PROJECT = 'lionswipes';
+  const FB_KEY = 'AIzaSyDfw9oIowdjesd4qnaFPP8-4t6NhAmfwEw';
   const THEME_BG = { light: '#F4F8FC', dark: '#10294A' };
 
   const numEl = document.getElementById('num');
@@ -343,11 +343,12 @@
       : Date.now().toString(36) + Math.random().toString(36).slice(2);
   }
 
-  // ---------- sync (optional; requires SUPA_URL/SUPA_KEY and the shared sync code) ----------
+  // ---------- sync (optional; requires FB_PROJECT and the shared sync code) ----------
+  // Each sync code gets its own folder: sync/<code>/entries/<entry id>.
   const stamp = e => e.updated_at || e.t;
 
   // Case-insensitive so a phone keyboard's auto-capitalization can't split devices apart.
-  const normCode = c => (c || '').trim().toLowerCase();
+  const normCode = c => (c || '').trim().toLowerCase().replace(/\//g, '');
   function syncCode(ask) {
     let c = null;
     try { c = normCode(localStorage.getItem(CODE_KEY)); } catch (_) { return null; }
@@ -358,23 +359,52 @@
     return c || null;
   }
   function setSynced(ok) { unsyncedBtn.hidden = ok; }
-  function syncHeaders(ask) {
-    const code = syncCode(ask);
-    if (!code) return null;
+
+  const FB_DOCS = 'projects/' + FB_PROJECT + '/databases/(default)/documents';
+  const FB_API = 'https://firestore.googleapis.com/v1/';
+  const withKey = url => FB_KEY ? url + (url.includes('?') ? '&' : '?') + 'key=' + FB_KEY : url;
+
+  function toFields(e, deleted) {
     return {
-      apikey: SUPA_KEY,
-      Authorization: 'Bearer ' + SUPA_KEY,
-      'Content-Type': 'application/json',
-      'x-sync-code': code,
+      t: { integerValue: String(e.t || 0) },
+      note: { stringValue: e.note || '' },
+      tags: { arrayValue: { values: (e.tags || []).map(x => ({ stringValue: x })) } },
+      deleted: { booleanValue: deleted },
+      updated_at: { integerValue: String(deleted ? 0 : stamp(e)) },
+    };
+  }
+  function fromDoc(d) {
+    const f = d.fields || {};
+    return {
+      id: d.name.split('/').pop(),
+      t: Number(f.t && f.t.integerValue) || 0,
+      note: (f.note && f.note.stringValue) || '',
+      tags: ((f.tags && f.tags.arrayValue && f.tags.arrayValue.values) || []).map(v => v.stringValue),
+      deleted: !!(f.deleted && f.deleted.booleanValue),
+      updated_at: Number(f.updated_at && f.updated_at.integerValue) || 0,
     };
   }
 
-  async function pull(headers) {
-    const res = await fetch(SUPA_URL + '/rest/v1/entries?select=*', { headers });
-    if (!res.ok) throw new Error(res.status);
-    const rows = await res.json();
+  // What the server holds, as id -> stamp (or 'del'), so uploads only send what changed.
+  let remote = null;
+
+  async function pull(code) {
+    const docs = [];
+    let page = '';
+    do {
+      const url = FB_API + FB_DOCS + '/sync/' + encodeURIComponent(code) + '/entries?pageSize=300'
+        + (page ? '&pageToken=' + encodeURIComponent(page) : '');
+      const res = await fetch(withKey(url));
+      if (!res.ok) throw new Error(res.status);
+      const body = await res.json();
+      docs.push(...(body.documents || []));
+      page = body.nextPageToken;
+    } while (page);
+
+    remote = {};
     let changed = false;
-    for (const r of rows) {
+    for (const r of docs.map(fromDoc)) {
+      remote[r.id] = r.deleted ? 'del' : stamp(r);
       if (r.deleted || deletedIds.includes(r.id)) {
         if (!deletedIds.includes(r.id)) deletedIds.push(r.id);
         const before = entries.length;
@@ -383,9 +413,9 @@
         continue;
       }
       const local = entries.find(x => x.id === r.id);
-      const remote = { id: r.id, t: r.t, note: r.note, tags: r.tags, updated_at: r.updated_at };
-      if (!local) { entries.push(remote); changed = true; }
-      else if (stamp(remote) > stamp(local)) { Object.assign(local, remote); changed = true; }
+      const fresh = { id: r.id, t: r.t, note: r.note, tags: r.tags, updated_at: r.updated_at };
+      if (!local) { entries.push(fresh); changed = true; }
+      else if (stamp(fresh) > stamp(local)) { Object.assign(local, fresh); changed = true; }
     }
     if (changed) {
       entries.sort((a, b) => a.t - b.t);
@@ -394,41 +424,50 @@
     return changed;
   }
 
-  async function push(headers) {
-    const code = headers['x-sync-code'];
-    const rows = entries.map(e => ({
-      id: e.id, t: e.t, note: e.note || '', tags: e.tags || [],
-      deleted: false, updated_at: stamp(e), sync_code: code,
-    })).concat(deletedIds.map(id => ({
-      // Every row in a bulk upsert must have the same keys, or Supabase rejects the batch.
-      id, t: 0, note: '', tags: [], deleted: true, updated_at: 0, sync_code: code,
-    })));
-    if (!rows.length) return;
-    const res = await fetch(SUPA_URL + '/rest/v1/entries', {
-      method: 'POST',
-      headers: { ...headers, Prefer: 'resolution=merge-duplicates' },
-      body: JSON.stringify(rows),
-    });
-    if (!res.ok) throw new Error(res.status);
+  async function push(code) {
+    const name = id => FB_DOCS + '/sync/' + code + '/entries/' + id;
+    const writes = [];
+    const sent = {};
+    for (const e of entries) {
+      if (remote[e.id] === stamp(e)) continue;
+      writes.push({ update: { name: name(e.id), fields: toFields(e, false) } });
+      sent[e.id] = stamp(e);
+    }
+    for (const id of deletedIds) {
+      if (remote[id] === 'del') continue;
+      writes.push({ update: { name: name(id), fields: toFields({}, true) } });
+      sent[id] = 'del';
+    }
+    for (let i = 0; i < writes.length; i += 500) {
+      const res = await fetch(withKey(FB_API + FB_DOCS + ':commit'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ writes: writes.slice(i, i + 500) }),
+      });
+      if (!res.ok) throw new Error(res.status);
+    }
+    Object.assign(remote, sent);
   }
 
   let pushTimer = null;
   function pushSoon() {
-    if (!SUPA_URL) return;
+    if (!FB_PROJECT) return;
     clearTimeout(pushTimer);
     pushTimer = setTimeout(() => {
-      const h = syncHeaders(false);
-      if (h) push(h).then(() => setSynced(true), () => setSynced(false));
+      const code = syncCode(false);
+      if (!code) return;
+      if (!remote) { sync(); return; }
+      push(code).then(() => setSynced(true), () => setSynced(false));
     }, 800);
   }
 
   async function sync() {
-    if (!SUPA_URL) return;
-    const h = syncHeaders(true);
-    if (!h) { setSynced(false); return; }
+    if (!FB_PROJECT) return;
+    const code = syncCode(true);
+    if (!code) { setSynced(false); return; }
     try {
-      const changed = await pull(h);
-      await push(h);
+      const changed = await pull(code);
+      await push(code);
       setSynced(true);
       if (changed && !editing) render();
     } catch (_) {
