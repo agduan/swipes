@@ -16,7 +16,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Swipes">
 <meta name="theme-color" content="#F4F8FC">
-<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" href="favicon.ico" sizes="48x48">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="icon" href="favicon.png" type="image/png" sizes="96x96">
 <link rel="apple-touch-icon" href="icon.png">
 <title>Swipes</title>
@@ -141,9 +142,9 @@
     border: 1px solid var(--field-border); background: var(--field);
   }
   .group:focus-within { border-color: var(--focus); }
-  .places { display: flex; border-bottom: 1px solid var(--field-border); }
+  .places { display: grid; border-bottom: 1px solid var(--field-border); }
   .place {
-    flex: 1; height: 36px; padding: 0; border: 0; background: none;
+    min-width: 0; height: 36px; padding: 0; border: 0; background: none;
     border-right: 1px solid var(--field-border);
     color: var(--muted); font-size: 13px; font-weight: 600;
     transition: background-color 120ms ease, color 120ms ease;
@@ -243,6 +244,7 @@
   <div class="tags" id="tags" role="group" aria-label="Tag people"></div>
   <div class="group">
     <div class="places" id="places" role="radiogroup" aria-label="Dining hall"></div>
+    <div class="places" id="meals" role="radiogroup" aria-label="Meal"></div>
     <input class="note" id="note" type="text" placeholder="Description" maxlength="200"
            autocomplete="off" autocapitalize="sentences" enterkeyhint="done">
   </div>
@@ -260,8 +262,9 @@
     { id: 'kex',   name: 'Kex',   color: '#FFCFA3' },
     { id: 'laura', name: 'Laura', color: '#FFC8DC' },
   ];
-  // Dining halls / common descriptions. One at a time; the text is prepended to the note.
-  const PLACES = ['fac', 'chmike', 'jj', 'jognnys', 'jeY'];
+  // Dining halls and meals. One of each at a time; the log note reads "<meal> @ <hall> <description>".
+  const PLACES = ['chmike', 'hewitt', 'fac', 'jjs', 'ferris'];
+  const MEALS = ['breakfast', 'lunch', 'dinner', 'misc'];
 
   const KEY = 'swipes.entries';
   const DEL_KEY = 'swipes.deleted';
@@ -269,7 +272,8 @@
   const THEME_KEY = 'swipes.theme';
 
   // Cross-device sync via Firebase Firestore. Leave FB_PROJECT blank to run purely on localStorage.
-  const FB_PROJECT = 'lionswipes';
+  const IS_LOCAL = ['localhost', '127.0.0.1', ''].includes(location.hostname);
+  const FB_PROJECT = IS_LOCAL ? '' : 'lionswipes';
   const FB_KEY = 'AIzaSyDfw9oIowdjesd4qnaFPP8-4t6NhAmfwEw';
   const THEME_BG = { light: '#F4F8FC', dark: '#10294A' };
 
@@ -279,6 +283,7 @@
   const noteEl = document.getElementById('note');
   const tagsEl = document.getElementById('tags');
   const placesEl = document.getElementById('places');
+  const mealsEl = document.getElementById('meals');
   const warnEl = document.getElementById('warn');
   const listEl = document.getElementById('list');
   const emptyEl = document.getElementById('empty');
@@ -290,6 +295,7 @@
   let deletedIds = [];          // ids of deleted entries, kept so another device can't resurrect them
   let selected = new Set();     // tags picked for the next log
   let place = null;             // dining hall picked for the next log (prepended to the note)
+  let meal = null;              // meal picked for the next log (shown as "meal @ hall")
   let confirming = null;        // id of the entry whose delete button is armed
   let editing = null;           // id of the entry being edited
 
@@ -545,21 +551,27 @@
     }
   }
 
-  function renderPlaces() {
-    placesEl.innerHTML = '';
-    for (const name of PLACES) {
+  // Both rows share the dining-hall column grid so they line up; the last button
+  // in a shorter row stretches across the leftover columns.
+  function radioRow(el, names, current, pick) {
+    el.innerHTML = '';
+    el.style.gridTemplateColumns = 'repeat(' + PLACES.length + ', minmax(0, 1fr))';
+    for (const name of names) {
       const b = document.createElement('button');
       b.type = 'button';
-      b.className = 'place' + (place === name ? ' on' : '');
+      b.className = 'place' + (current === name ? ' on' : '');
       b.setAttribute('role', 'radio');
-      b.setAttribute('aria-checked', place === name);
+      b.setAttribute('aria-checked', current === name);
       b.textContent = name;
-      b.addEventListener('click', () => {
-        place = (place === name) ? null : name;
-        renderPlaces();
-      });
-      placesEl.appendChild(b);
+      b.addEventListener('click', () => pick(current === name ? null : name));
+      el.appendChild(b);
     }
+    const spare = PLACES.length - names.length;
+    if (spare > 0) el.lastChild.style.gridColumn = 'span ' + (spare + 1);
+  }
+  function renderPlaces() {
+    radioRow(placesEl, PLACES, place, v => { place = v; renderPlaces(); });
+    radioRow(mealsEl, MEALS, meal, v => { meal = v; renderPlaces(); });
   }
 
   function renderList() {
@@ -713,7 +725,7 @@
     entries.push({
       id: uid(),
       t: Date.now(),
-      note: [place, noteEl.value.trim()].filter(Boolean).join(' '),
+      note: [[meal, place].filter(Boolean).join(' @ '), noteEl.value.trim()].filter(Boolean).join(' '),
       tags: TAGS.filter(t => selected.has(t.id)).map(t => t.id),
       updated_at: Date.now(),
     });
@@ -721,6 +733,7 @@
     noteEl.blur();
     selected.clear();
     place = null;
+    meal = null;
     renderPicker();
     renderPlaces();
     save();
